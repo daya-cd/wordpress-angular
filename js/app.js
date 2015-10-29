@@ -18,6 +18,11 @@ define(['common'], function(angularAMD) {
 				templateUrl: 'js/views/blog/blog.tpl.html',
 				controllerUrl: 'js/views/blog/blog.controller.js'
 			}))
+			.state('/blog/:category/:post', angularAMD.route({
+				url: '/blog/:category/:post',
+				templateUrl: 'js/views/post/post.tpl.html',
+				controllerUrl: 'js/views/post/post.controller.js'
+			}))
 
 
 		$urlRouterProvider.otherwise('/home');

@@ -14,7 +14,7 @@
 				<hr />
 
 				<div ng-repeat="post in posts">
-					<h4><a href="/blog/{{ post.categories[0].slug }}/{{ post.slug }}">{{ post.title }}</a> - {{ post.categories[0].title }}</h4>
+					<h4><a href="#/blog/{{ post.categories[0].slug }}/{{ post.slug }}">{{ post.title }}</a> - {{ post.categories[0].title }}</h4>
 					<div ng-bind-html="post.excerpt"></div>
 				</div>
 
