@@ -1,0 +1,12 @@
+<div data-ui-view ng-controller="aboutController">
+	<div class="container">
+		<div class="row">
+			<div class="col-md-12">
+				<h1 ng-bind="page.title"></h1>
+				<div ng-bind-html="page.content"></div>
+				<div ng-bind-html="page.custom_fields.call_to_action[0]"></div>
+			</div>
+		</div>
+	</div>
+</div>
+<div data-footer></div>
