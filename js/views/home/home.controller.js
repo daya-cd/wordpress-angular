@@ -7,6 +7,7 @@ define([
 
 			$http.get('wordpress/api/get_page/?slug=' + $location.url())
 			.success(function(data, status, headers, config){
+				console.log(data);
 				$scope.page = data.page;
 			})
 			.error(function(data, status, headers, config){
