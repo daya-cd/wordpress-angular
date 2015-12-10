@@ -4,6 +4,7 @@
  *
  * @package WordPress
  * @subpackage REST_API
+ * @since 4.4.0
  */
 
 /**
@@ -11,17 +12,32 @@
  *
  * @since 4.4.0
  *
+ * @global WP_REST_Server $wp_rest_server ResponseHandler instance (usually WP_REST_Server).
+ *
  * @param string $namespace The first URL segment after core prefix. Should be unique to your package/plugin.
  * @param string $route     The base URL for route you are adding.
  * @param array  $args      Optional. Either an array of options for the endpoint, or an array of arrays for
  *                          multiple methods. Default empty array.
  * @param bool   $override  Optional. If the route already exists, should we override it? True overrides,
  *                          false merges (with newer overriding if duplicate keys exist). Default false.
+ * @return bool True on success, false on error.
  */
 function register_rest_route( $namespace, $route, $args = array(), $override = false ) {
-
 	/** @var WP_REST_Server $wp_rest_server */
 	global $wp_rest_server;
+
+	if ( empty( $namespace ) ) {
+		/*
+		 * Non-namespaced routes are not allowed, with the exception of the main
+		 * and namespace indexes. If you really need to register a
+		 * non-namespaced route, call `WP_REST_Server::register_route` directly.
+		 */
+		_doing_it_wrong( 'register_rest_route', 'Routes must be namespaced with plugin or theme name and version.', '4.4.0' );
+		return false;
+	} else if ( empty( $route ) ) {
+		_doing_it_wrong( 'register_rest_route', 'Route must be specified.', '4.4.0' );
+		return false;
+	}
 
 	if ( isset( $args['callback'] ) ) {
 		// Upgrade a single set to multiple.
@@ -42,63 +58,9 @@ function register_rest_route( $namespace, $route, $args = array(), $override = f
 		$arg_group = array_merge( $defaults, $arg_group );
 	}
 
-	if ( $namespace ) {
-		$full_route = '/' . trim( $namespace, '/' ) . '/' . trim( $route, '/' );
-	} else {
-		/*
-		 * Non-namespaced routes are not allowed, with the exception of the main
-		 * and namespace indexes. If you really need to register a
-		 * non-namespaced route, call `WP_REST_Server::register_route` directly.
-		 */
-		_doing_it_wrong( 'register_rest_route', 'Routes must be namespaced with plugin name and version', 'WPAPI-2.0' );
-
-		$full_route = '/' . trim( $route, '/' );
-	}
-
+	$full_route = '/' . trim( $namespace, '/' ) . '/' . trim( $route, '/' );
 	$wp_rest_server->register_route( $namespace, $full_route, $args, $override );
-}
-
-/**
- * Registers a new field on an existing WordPress object type.
- *
- * @since 4.4.0
- *
- * @global array $wp_rest_additional_fields Holds registered fields, organized
- *                                          by object type.
- *
- * @param string|array $object_type Object(s) the field is being registered
- *                                   to, "post"|"term"|"comment" etc.
- * @param string $attribute         The attribute name.
- * @param array  $args {
- *     Optional. An array of arguments used to handle the registered field.
- *
- *     @type string|array|null $get_callback    Optional. The callback function used to retrieve the field
- *                                              value. Default is 'null', the field will not be returned in
- *                                              the response.
- *     @type string|array|null $update_callback Optional. The callback function used to set and update the
- *                                              field value. Default is 'null', the value cannot be set or
- *                                              updated.
- *     @type string|array|null schema           Optional. The callback function used to create the schema for
- *                                              this field. Default is 'null', no schema entry will be returned.
- * }
- */
-function register_api_field( $object_type, $attribute, $args = array() ) {
-
-	$defaults = array(
-		'get_callback'    => null,
-		'update_callback' => null,
-		'schema'          => null,
-	);
-
-	$args = wp_parse_args( $args, $defaults );
-
-	global $wp_rest_additional_fields;
-
-	$object_types = (array) $object_type;
-
-	foreach ( $object_types as $object_type ) {
-		$wp_rest_additional_fields[ $object_type ][ $attribute ] = $args;
-	}
+	return true;
 }
 
 /**
@@ -131,9 +93,10 @@ function rest_api_register_rewrites() {
 /**
  * Registers the default REST API filters.
  *
- * @since 4.4.0
+ * Attached to the {@see 'rest_api_init'} action
+ * to make testing and disabling these filters easier.
  *
- * @internal This will live in default-filters.php
+ * @since 4.4.0
  */
 function rest_api_default_filters() {
 	// Deprecated reporting.
@@ -153,6 +116,9 @@ function rest_api_default_filters() {
  * Loads the REST API.
  *
  * @since 4.4.0
+ *
+ * @global WP             $wp             Current WordPress environment instance.
+ * @global WP_REST_Server $wp_rest_server ResponseHandler instance (usually WP_REST_Server).
  */
 function rest_api_loaded() {
 	if ( empty( $GLOBALS['wp']->query_vars['rest_route'] ) ) {
@@ -162,6 +128,7 @@ function rest_api_loaded() {
 	/**
 	 * Whether this is a REST Request.
 	 *
+	 * @since 4.4.0
 	 * @var bool
 	 */
 	define( 'REST_REQUEST', true );
@@ -230,10 +197,10 @@ function rest_get_url_prefix() {
  *
  * @param int    $blog_id Optional. Blog ID. Default of null returns URL for current blog.
  * @param string $path    Optional. REST route. Default '/'.
- * @param string $scheme  Optional. Sanitization scheme. Default 'json'.
+ * @param string $scheme  Optional. Sanitization scheme. Default 'rest'.
  * @return string Full URL to the endpoint.
  */
-function get_rest_url( $blog_id = null, $path = '/', $scheme = 'json' ) {
+function get_rest_url( $blog_id = null, $path = '/', $scheme = 'rest' ) {
 	if ( empty( $path ) ) {
 		$path = '/';
 	}
@@ -249,6 +216,13 @@ function get_rest_url( $blog_id = null, $path = '/', $scheme = 'json' ) {
 		$url = add_query_arg( 'rest_route', $path, $url );
 	}
 
+	if ( is_ssl() ) {
+		// If the current host is the same as the REST URL host, force the REST URL scheme to HTTPS.
+		if ( $_SERVER['SERVER_NAME'] === parse_url( get_home_url( $blog_id ), PHP_URL_HOST ) ) {
+			$url = set_url_scheme( $url, 'https' );
+		}
+	}
+
 	/**
 	 * Filter the REST URL.
 	 *
@@ -258,7 +232,7 @@ function get_rest_url( $blog_id = null, $path = '/', $scheme = 'json' ) {
 	 *
 	 * @param string $url     REST URL.
 	 * @param string $path    REST route.
-	 * @param int    $blod_ig Blog ID.
+	 * @param int    $blog_id Blog ID.
 	 * @param string $scheme  Sanitization scheme.
 	 */
 	return apply_filters( 'rest_url', $url, $path, $blog_id, $scheme );
@@ -286,7 +260,7 @@ function rest_url( $path = '', $scheme = 'json' ) {
  *
  * @since 4.4.0
  *
- * @global WP_REST_Server $wp_rest_server
+ * @global WP_REST_Server $wp_rest_server ResponseHandler instance (usually WP_REST_Server).
  *
  * @param WP_REST_Request|string $request Request.
  * @return WP_REST_Response REST response.
@@ -349,8 +323,10 @@ function rest_ensure_response( $response ) {
  */
 function rest_handle_deprecated_function( $function, $replacement, $version ) {
 	if ( ! empty( $replacement ) ) {
+		/* translators: 1: function name, 2: WordPress version number, 3: new function name */
 		$string = sprintf( __( '%1$s (since %2$s; use %3$s instead)' ), $function, $version, $replacement );
 	} else {
+		/* translators: 1: function name, 2: WordPress version number */
 		$string = sprintf( __( '%1$s (since %2$s; no alternative available)' ), $function, $version );
 	}
 
@@ -368,8 +344,10 @@ function rest_handle_deprecated_function( $function, $replacement, $version ) {
  */
 function rest_handle_deprecated_argument( $function, $replacement, $version ) {
 	if ( ! empty( $replacement ) ) {
+		/* translators: 1: function name, 2: WordPress version number, 3: new argument name */
 		$string = sprintf( __( '%1$s (since %2$s; %3$s)' ), $function, $version, $replacement );
 	} else {
+		/* translators: 1: function name, 2: WordPress version number */
 		$string = sprintf( __( '%1$s (since %2$s; no alternative available)' ), $function, $version );
 	}
 
@@ -444,10 +422,9 @@ function rest_handle_options_request( $response, $handler, $request ) {
  * @param WP_REST_Response $response Current response being served.
  * @param WP_REST_Server   $server   ResponseHandler instance (usually WP_REST_Server).
  * @param WP_REST_Request  $request  The request that was used to make current response.
- * @return WP_REST_Response Current response being served.
+ * @return WP_REST_Response Response to be served, with "Allow" header if route has allowed methods.
  */
 function rest_send_allow_header( $response, $server, $request ) {
-
 	$matched_route = $response->get_matched_route();
 
 	if ( ! $matched_route ) {
@@ -515,7 +492,7 @@ function rest_output_link_wp_head() {
 		return;
 	}
 
-	echo "<link rel='https://github.com/WP-API/WP-API' href='" . esc_url( $api_root ) . "' />\n";
+	echo "<link rel='https://api.w.org/' href='" . esc_url( $api_root ) . "' />\n";
 }
 
 /**
@@ -534,7 +511,7 @@ function rest_output_link_header() {
 		return;
 	}
 
-	header( 'Link: <' . esc_url_raw( $api_root ) . '>; rel="https://github.com/WP-API/WP-API"', false );
+	header( 'Link: <' . esc_url_raw( $api_root ) . '>; rel="https://api.w.org/"', false );
 }
 
 /**
@@ -571,8 +548,8 @@ function rest_cookie_check_errors( $result ) {
 	// Determine if there is a nonce.
 	$nonce = null;
 
-	if ( isset( $_REQUEST['_wp_rest_nonce'] ) ) {
-		$nonce = $_REQUEST['_wp_rest_nonce'];
+	if ( isset( $_REQUEST['_wpnonce'] ) ) {
+		$nonce = $_REQUEST['_wpnonce'];
 	} elseif ( isset( $_SERVER['HTTP_X_WP_NONCE'] ) ) {
 		$nonce = $_SERVER['HTTP_X_WP_NONCE'];
 	}
